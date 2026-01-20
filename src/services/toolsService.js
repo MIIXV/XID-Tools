@@ -65,7 +65,10 @@ export const toolsService = {
         const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
         const { data, error } = await supabase.storage
             .from('tool-files')
-            .upload(fileName, file);
+            .upload(fileName, file, {
+                contentType: file.type,
+                upsert: false
+            });
 
         if (error) {
             console.error('Error uploading file:', error);
