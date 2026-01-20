@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>动态 Mesh Gradient 生成器</title>
+    <!-- UI 库: Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 截图库: html-to-image -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
+    <!-- 颜色提取库: ColorThief -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/color-thief/2.3.0/color-thief.umd.js"></script>
+    <!-- GIF 生成库: gif.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+    
+    <style>
+        /* --- 核心变量与样式 --- */
+        :root {
+            /* 颜色变量 */
+            --c1: #D5F4FD;
+            --c2: #B5E0DF;
+            --c3: #E0FFFF;
+            --c4: #AEEEEE;
+            
+            /* 大小变量 */
+            --s1: 55%;
+            --s2: 50%;
+            --s3: 40%;
+            --s4: 45%;
+
+            /* 全局控制 */
+            --speed: 1;         /* 移动速度系数 */
+            --pulse-speed: 1;   /* 呼吸速度系数 */
+            --blur: 100px; 
+            --bg-color: #f0faff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #1a1a1a;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* --- 预览区域 --- */
+        #preview-area {
+            flex: 1;
+            background: #262626;
+            /* 透明棋盘格背景，方便观察透明度 */
+            background-image: 
+                linear-gradient(45deg, #333 25%, transparent 25%), 
+                linear-gradient(-45deg, #333 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #333 75%), 
+                linear-gradient(-45deg, transparent 75%, #333 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            padding: 40px;
+            overflow: hidden;
+        }
+
+        /* 画布容器 */
+        .canvas-container {
+            position: relative;
+            background: var(--bg-color);
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            transition: width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), 
+                        height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), 
+                        border-radius 0.4s;
+            overflow: hidden;
+            width: 100%;
+            height: 100%; 
+            background-clip: padding-box;
+        }
+
+        /* 噪点层 */
+        .noise-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+            opacity: 0.4;
+        }
+
+        /* 模糊容器 */
+        .gradients-container {
+            width: 100%;
+            height: 100%;
+            filter: blur(var(--blur));
+            position: relative;
+            transform: translateZ(0); /* 开启硬件加速 */
+            will-change: filter;
+        }
+
+        /* 色块通用样式 */
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            mix-blend-mode: multiply;
+            /* 同时应用漫游(roam)和呼吸(pulse)动画 */
+            animation-iteration-count: infinite;
+            animation-timing-function: ease-in-out;
+            will-change: transform, opacity;
+        }
+
+        /* --- 个体色块定义 --- */
+        /* Orb 1: 左上, 呼吸相位 0% */
+        .orb-1 {
+            background: var(--c1); width: var(--s1); height: var(--s1); 
+            top: -10%; left: -10%;
+            animation-name: roam1, pulse1;
+            animation-duration: calc(23s / var(--speed)), calc(9s / var(--pulse-speed)); 
+        }
+
+        /* Orb 2: 右下, 呼吸相位 180% (反相) */
+        .orb-2 {
+            background: var(--c2); width: var(--s2); height: var(--s2);
+            bottom: -10%; right: -10%;
+            animation-name: roam2, pulse2;
+            animation-duration: calc(29s / var(--speed)), calc(11s / var(--pulse-speed));
+        }
+
+        /* Orb 3: 右上, 错峰 */
+        .orb-3 {
+            background: var(--c3); width: var(--s3); height: var(--s3);
+            top: 5%; right: 5%; left: auto;
+            animation-name: roam3, pulse3;
+            animation-duration: calc(31s / var(--speed)), calc(7s / var(--pulse-speed));
+        }
+
+        /* Orb 4: 左下, 错峰 */
+        .orb-4 {
+            background: var(--c4); width: var(--s4); height: var(--s4);
+            bottom: 5%; left: 5%;
+            animation-name: roam4, pulse4;
+            animation-duration: calc(37s / var(--speed)), calc(13s / var(--pulse-speed));
+        }
+
+        /* --- 动画关键帧: 漫游 (位移/缩放/旋转) --- */
+        @keyframes roam1 { 
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30%, 10%) scale(1.1); } 
+            66% { transform: translate(10%, 30%) scale(0.95); } 
+            100% { transform: translate(0, 0) scale(1); }
+        }
+        @keyframes roam2 { 
+            0% { transform: translate(0, 0) scale(1) rotate(0deg); }
+            33% { transform: translate(-30%, -5%) scale(1.1) rotate(20deg); } 
+            66% { transform: translate(-5%, -30%) scale(0.9) rotate(-10deg); } 
+            100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+        }
+        @keyframes roam3 { 
+            0% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(-25%, 15%) scale(1.15); } 
+            50% { transform: translate(0, 30%) scale(0.9); } 
+            75% { transform: translate(-10%, 10%) scale(1.05); }
+            100% { transform: translate(0, 0) scale(1); }
+        }
+        @keyframes roam4 { 
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(25%, -25%) scale(1.2); } 
+            66% { transform: translate(0, -35%) scale(0.85); } 
+            100% { transform: translate(0, 0) scale(1); }
+        }
+
+        /* --- 动画关键帧: 呼吸 (透明度 50%-100%) --- */
+        @keyframes pulse1 { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+        @keyframes pulse2 { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes pulse3 { 0%, 100% { opacity: 0.7; } 33% { opacity: 1; } 66% { opacity: 0.5; } }
+        @keyframes pulse4 { 0%, 100% { opacity: 0.8; } 33% { opacity: 0.5; } 66% { opacity: 1; } }
+
+        /* --- 备选动画模式 --- */
+        /* 仅呼吸模式 */
+        .anim-breathe .orb { 
+            animation-name: pulse_breathe !important; 
+            animation-duration: calc(6s / var(--pulse-speed)) !important; 
+        }
+        @keyframes pulse_breathe { 
+            0%, 100% { transform: scale(1); opacity: 0.5; } 
+            50% { transform: scale(1.05); opacity: 0.9; } 
+        }
+        /* 圆周运动模式 */
+        .anim-circular .orb { 
+            animation-name: circular, pulse1 !important; 
+        }
+        @keyframes circular { 
+            0% { transform: rotate(0deg) translateX(15%) rotate(0deg); } 
+            100% { transform: rotate(360deg) translateX(15%) rotate(-360deg); } 
+        }
+
+        /* --- UI 控件自定义样式 --- */
+        input[type="color"] { -webkit-appearance: none; border: none; width: 28px; height: 28px; border-radius: 50%; padding: 0; overflow: hidden; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-radius: 50%; }
+        
+        input[type=range] { -webkit-appearance: none; background: transparent; height: 20px; vertical-align: middle; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #e5e7eb; border-radius: 2px; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: #3b82f6; margin-top: -5px; cursor: pointer; transition: background 0.1s; transform-origin: center; }
+        input[type=range]::-webkit-slider-thumb:hover { background: #2563eb; transform: scale(1.2); }
+
+        #controls::-webkit-scrollbar { width: 6px; }
+        #controls::-webkit-scrollbar-track { background: transparent; }
+        #controls::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+        
+        .loading { opacity: 0.7; pointer-events: none; cursor: wait; }
+    </style>
+</head>
+<body>
+
+    <!-- 左侧预览区 -->
+    <div id="preview-area">
+        <div class="canvas-container" id="canvasContainer">
+            <div class="noise-overlay"></div>
+            <div class="gradients-container" id="gradientLayer">
+                <div class="orb orb-1"></div>
+                <div class="orb orb-2"></div>
+                <div class="orb orb-3"></div>
+                <div class="orb orb-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧控制台 -->
+    <aside id="controls" class="w-80 bg-white border-l border-gray-200 flex flex-col h-full overflow-y-auto z-20 shadow-lg shrink-0">
+        <div class="p-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
+                控制台
+            </h2>
+
+            <!-- 1. 颜色与大小 -->
+            <div class="mb-8">
+                <div class="flex justify-between items-center mb-3">
+                    <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider block">Color Palette</label>
+                    <input type="file" id="img-input" accept="image/*" class="hidden">
+                    <button id="btn-import-img" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded border border-gray-300 transition-colors flex items-center gap-1" title="从图片提取颜色">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        Import
+                    </button>
+                </div>
+                
+                <!-- Background -->
+                <div class="flex items-center justify-between mb-4 p-2 bg-gray-50 rounded-lg border border-gray-100">
+                    <span class="text-sm text-gray-700 font-medium">Background</span>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="hex-bg" value="#F0FAFF" maxlength="7" 
+                               class="text-xs text-gray-500 font-mono w-20 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none text-right uppercase">
+                        <input type="color" id="ctrl-bg" value="#f0faff">
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- Orb 1 -->
+                    <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-sm text-gray-700 font-medium">Orb 1 (Main)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="hex-c1" value="#D5F4FD" maxlength="7" class="text-xs text-gray-500 font-mono w-20 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none text-right uppercase">
+                                <input type="color" id="ctrl-c1" value="#D5F4FD">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-400 w-6">Size</span>
+                            <input type="range" id="ctrl-s1" min="10" max="100" value="55" class="flex-1">
+                            <span class="text-xs text-gray-500 w-8 text-right font-mono" id="val-s1">55%</span>
+                        </div>
+                    </div>
+                    <!-- Orb 2 -->
+                    <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-sm text-gray-700 font-medium">Orb 2 (Accent)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="hex-c2" value="#B5E0DF" maxlength="7" class="text-xs text-gray-500 font-mono w-20 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none text-right uppercase">
+                                <input type="color" id="ctrl-c2" value="#B5E0DF">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-400 w-6">Size</span>
+                            <input type="range" id="ctrl-s2" min="10" max="100" value="50" class="flex-1">
+                            <span class="text-xs text-gray-500 w-8 text-right font-mono" id="val-s2">50%</span>
+                        </div>
+                    </div>
+                    <!-- Orb 3 -->
+                    <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-sm text-gray-700 font-medium">Orb 3 (Light)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="hex-c3" value="#E0FFFF" maxlength="7" class="text-xs text-gray-500 font-mono w-20 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none text-right uppercase">
+                                <input type="color" id="ctrl-c3" value="#E0FFFF">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-400 w-6">Size</span>
+                            <input type="range" id="ctrl-s3" min="10" max="100" value="40" class="flex-1">
+                            <span class="text-xs text-gray-500 w-8 text-right font-mono" id="val-s3">40%</span>
+                        </div>
+                    </div>
+                    <!-- Orb 4 -->
+                    <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-sm text-gray-700 font-medium">Orb 4 (Detail)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="hex-c4" value="#AEEEEE" maxlength="7" class="text-xs text-gray-500 font-mono w-20 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none text-right uppercase">
+                                <input type="color" id="ctrl-c4" value="#AEEEEE">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-400 w-6">Size</span>
+                            <input type="range" id="ctrl-s4" min="10" max="100" value="45" class="flex-1">
+                            <span class="text-xs text-gray-500 w-8 text-right font-mono" id="val-s4">45%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="border-gray-100 mb-8">
+
+            <!-- 2. 画布比例 -->
+            <div class="mb-8">
+                <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 block">Canvas Size</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button class="ratio-btn px-3 py-2 text-sm border rounded hover:bg-gray-50 bg-blue-50 border-blue-200 text-blue-600 font-medium transition-all" data-w="100%" data-h="100%">Full Screen</button>
+                    <button class="ratio-btn px-3 py-2 text-sm border rounded hover:bg-gray-50 text-gray-600 transition-all" data-w="375px" data-h="812px">Mobile (9:19)</button>
+                    <button class="ratio-btn px-3 py-2 text-sm border rounded hover:bg-gray-50 text-gray-600 transition-all" data-w="900px" data-h="600px">Desktop (3:2)</button>
+                    <button class="ratio-btn px-3 py-2 text-sm border rounded hover:bg-gray-50 text-gray-600 transition-all" data-w="500px" data-h="500px">Square (1:1)</button>
+                </div>
+            </div>
+
+            <hr class="border-gray-100 mb-8">
+
+            <!-- 3. 动画控制 -->
+            <div class="mb-8">
+                <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 block">Animation & Effect</label>
+                
+                <div class="mb-4">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm text-gray-600">Move Speed</span>
+                        <span class="text-xs text-gray-400" id="val-speed">1x</span>
+                    </div>
+                    <input type="range" id="ctrl-speed" min="0" max="10" step="0.1" value="1" class="w-full">
+                </div>
+
+                <div class="mb-4">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm text-gray-600">Pulse Speed</span>
+                        <span class="text-xs text-gray-400" id="val-pulse-speed">1x</span>
+                    </div>
+                    <input type="range" id="ctrl-pulse-speed" min="0" max="10" step="0.1" value="1" class="w-full">
+                </div>
+
+                <div class="mb-4">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm text-gray-600">Blur Intensity</span>
+                        <span class="text-xs text-gray-400" id="val-blur">100px</span>
+                    </div>
+                    <input type="range" id="ctrl-blur" min="0" max="200" step="1" value="100" class="w-full">
+                </div>
+
+                <div class="mb-4">
+                    <span class="text-sm text-gray-600 block mb-2">Movement Style</span>
+                    <select id="ctrl-mode" class="w-full border-gray-300 rounded-md shadow-sm text-sm border p-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">🚀 Wide Drift (Roam)</option>
+                        <option value="anim-circular">🎡 Circular Orbit</option>
+                        <option value="anim-breathe">🧘 Gentle Breathe</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 4. 导出区域 -->
+            <div class="mt-auto pt-6 border-t border-gray-100 space-y-3 pb-6">
+                
+                <!-- Video / GIF Export -->
+                <div class="flex gap-2">
+                    <select id="export-format" class="bg-gray-100 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 flex-1">
+                        <option value="webm">WebM (Default)</option>
+                        <option value="mp4">MP4 (Experimental)</option>
+                        <option value="gif">GIF (Loop)</option>
+                    </select>
+                    <button id="btn-export-video" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-2 rounded-lg transition-colors flex items-center justify-center gap-1 text-sm shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Export
+                    </button>
+                </div>
+
+                <!-- PNG Export -->
+                <button id="btn-export-img" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Export Image (PNG)
+                </button>
+
+                <!-- Copy CSS -->
+                <button id="btn-copy-css" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy CSS Code
+                </button>
+                <p id="copy-msg" class="text-center text-green-600 text-xs mt-2 opacity-0 transition-opacity">Action Successful!</p>
+            </div>
+
+        </div>
+    </aside>
+
+    <script>
+        // --- 核心逻辑 ---
+        const root = document.documentElement;
+        const canvasContainer = document.getElementById('canvasContainer');
+        const msg = document.getElementById('copy-msg');
+        const exportBtn = document.getElementById('btn-export-img');
+        const videoBtn = document.getElementById('btn-export-video');
+        const formatSelect = document.getElementById('export-format');
+        const imgInput = document.getElementById('img-input');
+        const importBtn = document.getElementById('btn-import-img');
+
+        // RGB array to Hex converter
+        function rgbToHex(r, g, b) {
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        }
+
+        // RGB to HSL helper
+        function rgbToHsl(r, g, b) {
+            r /= 255, g /= 255, b /= 255;
+            var max = Math.max(r, g, b), min = Math.min(r, g, b);
+            var h, s, l = (max + min) / 2;
+
+            if (max == min) {
+                h = s = 0; // achromatic
+            } else {
+                var d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return [h, s, l];
+        }
+
+        // UI 辅助: 更新颜色输入框
+        function updateColorControl(id, hexColor) {
+            const colorInput = document.getElementById(`ctrl-${id}`);
+            const textInput = document.getElementById(`hex-${id}`);
+            const cssVar = id === 'bg' ? '--bg-color' : `--c${id.replace('c', '')}`;
+
+            if (colorInput && textInput) {
+                colorInput.value = hexColor;
+                textInput.value = hexColor.toUpperCase();
+                const finalVar = id === 'bg' ? '--bg-color' : `--${id}`;
+                root.style.setProperty(finalVar, hexColor);
+            }
+        }
+
+        // --- 1. 图片取色逻辑 ---
+        importBtn.addEventListener('click', () => imgInput.click());
+
+        imgInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            importBtn.innerHTML = `<span class="animate-pulse">Loading...</span>`;
+            importBtn.classList.add("cursor-wait");
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const colorThief = new ColorThief();
+                    // 1. 获取更多候选颜色
+                    let rawPalette = colorThief.getPalette(img, 20); 
+                    
+                    // 2. 智能过滤: 去除 黑/灰/白
+                    let colorfulPalette = rawPalette.filter(rgb => {
+                        const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+                        return s > 0.20 && l > 0.10 && l < 0.90;
+                    });
+
+                    // 3. 数量补全
+                    if (colorfulPalette.length < 5) {
+                        for (let c of rawPalette) {
+                             if (colorfulPalette.length >= 5) break;
+                             let isExist = colorfulPalette.some(existing => existing[0]===c[0] && existing[1]===c[1] && existing[2]===c[2]);
+                             if (!isExist) colorfulPalette.push(c);
+                        }
+                    }
+                    while (colorfulPalette.length < 5) {
+                        colorfulPalette.push(colorfulPalette[0] || [213, 244, 253]);
+                    }
+
+                    // 4. 应用
+                    updateColorControl('bg', rgbToHex(...colorfulPalette[0]));
+                    updateColorControl('c1', rgbToHex(...colorfulPalette[1]));
+                    updateColorControl('c2', rgbToHex(...colorfulPalette[2]));
+                    updateColorControl('c3', rgbToHex(...colorfulPalette[3]));
+                    updateColorControl('c4', rgbToHex(...colorfulPalette[4]));
+
+                    importBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        Import`;
+                    importBtn.classList.remove("cursor-wait");
+                    
+                    msg.innerText = "Palette Extracted!";
+                    msg.style.opacity = 1;
+                    setTimeout(() => msg.style.opacity = 0, 2000);
+                }
+                img.src = event.target.result;
+            }
+            reader.readAsDataURL(file);
+        });
+
+        // --- 2. 控件绑定 ---
+        // 颜色与Hex输入框双向绑定
+        function bindColorControl(colorInputId, textInputId, cssVar, sizeInputId, sizeLabelId, sizeCssVar) {
+            const colorInput = document.getElementById(colorInputId);
+            const textInput = document.getElementById(textInputId);
+
+            colorInput.addEventListener('input', (e) => {
+                const val = e.target.value;
+                root.style.setProperty(cssVar, val);
+                textInput.value = val.toUpperCase();
+            });
+
+            textInput.addEventListener('change', (e) => {
+                let val = e.target.value.trim();
+                if (val.charAt(0) !== '#') val = '#' + val;
+                
+                const isValidHex = /^#([0-9A-F]{3}){1,2}$/i.test(val);
+                
+                if (isValidHex) {
+                    if (val.length === 4) {
+                        val = '#' + val[1] + val[1] + val[2] + val[2] + val[3] + val[3];
+                    }
+                    root.style.setProperty(cssVar, val);
+                    colorInput.value = val;
+                    textInput.value = val.toUpperCase();
+                } else {
+                    textInput.value = colorInput.value.toUpperCase();
+                }
+            });
+
+            if (sizeInputId) {
+                const sInput = document.getElementById(sizeInputId);
+                const sLabel = document.getElementById(sizeLabelId);
+                sInput.addEventListener('input', (e) => {
+                    root.style.setProperty(sizeCssVar, e.target.value + '%');
+                    sLabel.innerText = e.target.value + '%';
+                });
+            }
+        }
+
+        bindColorControl('ctrl-bg', 'hex-bg', '--bg-color', null, null, null);
+        ['1', '2', '3', '4'].forEach(id => {
+            bindColorControl(`ctrl-c${id}`, `hex-c${id}`, `--c${id}`, `ctrl-s${id}`, `val-s${id}`, `--s${id}`);
+        });
+
+        // 滑块绑定
+        const rangeInputs = [
+            { id: 'speed', unit: 'x', cssVar: '--speed' },
+            { id: 'pulse-speed', unit: 'x', cssVar: '--pulse-speed' },
+            { id: 'blur', unit: 'px', cssVar: '--blur' }
+        ];
+
+        rangeInputs.forEach(item => {
+            const input = document.getElementById(`ctrl-${item.id}`);
+            const label = document.getElementById(`val-${item.id}`);
+            input.addEventListener('input', (e) => {
+                const val = e.target.value;
+                const suffix = item.id === 'blur' ? 'px' : '';
+                root.style.setProperty(item.cssVar, val + suffix);
+                label.innerText = val + item.unit;
+            });
+        });
+
+        // 动画模式切换
+        document.getElementById('ctrl-mode').addEventListener('change', (e) => {
+            const mode = e.target.value;
+            const gl = document.getElementById('gradientLayer');
+            gl.classList.remove('anim-breathe', 'anim-circular');
+            if(mode) gl.classList.add(mode);
+        });
+
+        // 尺寸切换
+        const ratioBtns = document.querySelectorAll('.ratio-btn');
+        ratioBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                ratioBtns.forEach(b => {
+                    b.classList.remove('bg-blue-50', 'border-blue-200', 'text-blue-600', 'font-medium');
+                    b.classList.add('text-gray-600');
+                });
+                btn.classList.add('bg-blue-50', 'border-blue-200', 'text-blue-600', 'font-medium');
+                btn.classList.remove('text-gray-600');
+                const w = btn.dataset.w;
+                const h = btn.dataset.h;
+                if (w === '100%') {
+                    canvasContainer.style.width = '100%';
+                    canvasContainer.style.height = '100%';
+                    canvasContainer.style.borderRadius = '0';
+                } else {
+                    canvasContainer.style.width = w;
+                    canvasContainer.style.height = h;
+                    canvasContainer.style.borderRadius = '24px';
+                }
+            });
+        });
+
+        // --- 3. 导出逻辑 ---
+
+        // CSS 复制 (使用 execCommand 兼容 iframe)
+        document.getElementById('btn-copy-css').addEventListener('click', () => {
+            const styleObj = getComputedStyle(root);
+            const cssCode = `/* CSS Mesh Gradient */
+:root {
+    --c1: ${styleObj.getPropertyValue('--c1').trim()};
+    --c2: ${styleObj.getPropertyValue('--c2').trim()};
+    --c3: ${styleObj.getPropertyValue('--c3').trim()};
+    --c4: ${styleObj.getPropertyValue('--c4').trim()};
+    --bg-color: ${styleObj.getPropertyValue('--bg-color').trim()};
+    --speed: ${styleObj.getPropertyValue('--speed').trim()};
+    --blur: ${styleObj.getPropertyValue('--blur').trim()};
+}
+.gradient-bg {
+    width: 100vw; height: 100vh;
+    background-color: var(--bg-color);
+    overflow: hidden;
+    position: relative;
+}
+.gradients-container {
+    filter: blur(var(--blur));
+    width: 100%; height: 100%;
+}
+.orb {
+    position: absolute; border-radius: 50%;
+    mix-blend-mode: multiply;
+}
+/* ... 更多动画关键帧请参考源码 ... */`;
+            
+            const textarea = document.createElement('textarea');
+            textarea.value = cssCode;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                msg.innerText = "CSS Code Copied!";
+                msg.style.opacity = 1;
+                setTimeout(() => msg.style.opacity = 0, 2000);
+            } catch (err) {
+                console.error('Copy failed', err);
+            }
+            document.body.removeChild(textarea);
+        });
+
+        // PNG 导出
+        exportBtn.addEventListener('click', () => {
+            exportBtn.classList.add('loading');
+            exportBtn.innerText = 'Saving...';
+            
+            htmlToImage.toPng(canvasContainer, {
+                pixelRatio: 2, 
+                backgroundColor: getComputedStyle(root).getPropertyValue('--bg-color') 
+            })
+            .then(function (dataUrl) {
+                const link = document.createElement('a');
+                link.download = 'mesh-gradient.png';
+                link.href = dataUrl;
+                link.click();
+                resetExportBtn();
+            })
+            .catch(function (error) {
+                console.error('oops, something went wrong!', error);
+                resetExportBtn();
+            });
+        });
+
+        function resetExportBtn() {
+            exportBtn.classList.remove('loading');
+            exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> Export PNG`;
+        }
+
+        // 视频/GIF 导出
+        videoBtn.addEventListener('click', async () => {
+            const format = formatSelect.value;
+            const isGif = format === 'gif';
+            const mimeType = format === 'mp4' ? 'video/mp4' : 'video/webm;codecs=vp9';
+            
+            if (format === 'mp4' && !MediaRecorder.isTypeSupported('video/mp4')) {
+                alert("Your browser does not support native MP4 recording. Fallback to WebM.");
+                formatSelect.value = 'webm';
+                return;
+            }
+
+            videoBtn.disabled = true;
+            videoBtn.classList.add('opacity-75', 'cursor-not-allowed');
+            msg.innerText = isGif ? 'Rendering GIF... (Optimizing)' : 'Recording Video...';
+            msg.style.opacity = 1;
+
+            // --- 策略配置 ---
+            let scale, fps, bitRate;
+            
+            if (isGif) {
+                scale = 0.5; // GIF: 降分辨率减小体积
+                fps = 15;    // GIF: 降帧率
+            } else {
+                scale = 1.0; // Video: 标准分辨率
+                fps = 30;
+                bitRate = 2500000; // 2.5 Mbps
+            }
+
+            const width = Math.floor(canvasContainer.clientWidth * scale);
+            const height = Math.floor(canvasContainer.clientHeight * scale);
+            const duration = 5000;
+            
+            // 准备画布
+            const canvas = document.createElement('canvas');
+            canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            // 离屏画布 (用于绘制清晰图层)
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = width; offCanvas.height = height;
+            const offCtx = offCanvas.getContext('2d');
+
+            // 噪点纹理
+            const noiseCanvas = document.createElement('canvas');
+            noiseCanvas.width = 200; noiseCanvas.height = 200;
+            const nCtx = noiseCanvas.getContext('2d');
+            const nData = nCtx.createImageData(200,200);
+            const buf = new Uint32Array(nData.data.buffer);
+            for(let i=0;i<buf.length;i++) if(Math.random()<0.5) buf[i]=0x08000000;
+            nCtx.putImageData(nData,0,0);
+            const noisePattern = ctx.createPattern(noiseCanvas, 'repeat');
+
+            // 样式参数
+            const blurVal = parseFloat(getComputedStyle(root).getPropertyValue('--blur')) || 100;
+            const sBlur = blurVal * scale;
+            const bgColor = getComputedStyle(root).getPropertyValue('--bg-color').trim();
+            const orbs = ['.orb-1','.orb-2','.orb-3','.orb-4'].map(s => document.querySelector(s));
+
+            // 初始化录制器
+            let mediaRecorder, chunks = [], gif;
+            
+            if (isGif) {
+                // 加载 worker blob 以支持单文件运行
+                const workerBlob = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js').then(r => r.blob());
+                const workerUrl = URL.createObjectURL(workerBlob);
+                
+                gif = new GIF({
+                    workers: 4,
+                    quality: 20, // 稍微降低色彩精度换取体积
+                    width: width,
+                    height: height,
+                    workerScript: workerUrl,
+                    background: bgColor
+                });
+                
+                gif.on('finished', (blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = 'mesh-gradient.gif'; a.click();
+                    resetUI();
+                });
+            } else {
+                const stream = canvas.captureStream(fps);
+                mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType, videoBitsPerSecond: bitRate });
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(chunks, { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = `mesh-gradient.${format}`; a.click();
+                    resetUI();
+                };
+                mediaRecorder.start();
+            }
+
+            const startTime = performance.now();
+            const frameInterval = 1000 / fps;
+            let lastFrameTime = 0;
+
+            function resetUI() {
+                videoBtn.disabled = false;
+                videoBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+                videoBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg> Export`;
+                msg.innerText = "Export Complete!";
+                setTimeout(() => msg.style.opacity = 0, 3000);
+            }
+
+            // 渲染循环
+            function draw() {
+                const now = performance.now();
+                const elapsed = now - startTime;
+                
+                if (elapsed > duration) {
+                    if (isGif) {
+                        msg.innerText = 'Encoding GIF...';
+                        gif.render();
+                    } else {
+                        mediaRecorder.stop();
+                    }
+                    return;
+                }
+
+                // 帧率控制
+                if (now - lastFrameTime < frameInterval) {
+                    requestAnimationFrame(draw);
+                    return;
+                }
+                lastFrameTime = now;
+
+                videoBtn.innerText = `${Math.round(elapsed/1000)}s / 5s`;
+
+                // --- 1. 离屏绘制: 清晰混合层 ---
+                offCtx.globalCompositeOperation = 'source-over';
+                offCtx.fillStyle = bgColor;
+                offCtx.fillRect(0,0,width,height);
+                
+                offCtx.globalCompositeOperation = 'multiply';
+                const contRect = canvasContainer.getBoundingClientRect();
+                
+                orbs.forEach(orb => {
+                    const rect = orb.getBoundingClientRect();
+                    const style = getComputedStyle(orb);
+                    // 计算相对坐标并应用 scale
+                    const x = (rect.left - contRect.left + rect.width/2) * scale;
+                    const y = (rect.top - contRect.top + rect.height/2) * scale;
+                    const r = (rect.width/2) * scale;
+                    
+                    offCtx.beginPath();
+                    offCtx.arc(x, y, r, 0, Math.PI*2);
+                    offCtx.fillStyle = style.backgroundColor;
+                    const oldAlpha = offCtx.globalAlpha;
+                    offCtx.globalAlpha = parseFloat(style.opacity);
+                    offCtx.fill();
+                    offCtx.globalAlpha = oldAlpha;
+                });
+
+                // --- 2. 主屏绘制: 应用模糊 + 噪点 ---
+                ctx.clearRect(0,0,width,height);
+                ctx.filter = `blur(${sBlur}px)`;
+                ctx.drawImage(offCanvas, 0, 0);
+                ctx.filter = 'none';
+                
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.fillStyle = noisePattern;
+                ctx.globalAlpha = 0.4;
+                ctx.fillRect(0,0,width,height);
+                ctx.globalAlpha = 1.0;
+
+                // --- 3. 捕捉帧 ---
+                if (isGif) {
+                    gif.addFrame(ctx, {copy: true, delay: frameInterval});
+                }
+                
+                requestAnimationFrame(draw);
+            }
+            
+            draw();
+        });
+    </script>
+</body>
+</html>
