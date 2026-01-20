@@ -13,6 +13,10 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
     const [file, setFile] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
 
+    // Cover image state
+    const [coverImageFile, setCoverImageFile] = useState(null);
+    const [isCoverDragging, setIsCoverDragging] = useState(false);
+
     useEffect(() => {
         if (initialData) {
             setFormData({
@@ -20,6 +24,7 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
                 tags: initialData.tags ? initialData.tags.join(', ') : ''
             });
             setFile(null);
+            setCoverImageFile(null);
         } else {
             setFormData({
                 title: '',
@@ -29,6 +34,7 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
                 tags: ''
             });
             setFile(null);
+            setCoverImageFile(null);
         }
     }, [initialData, isOpen]);
 
@@ -40,16 +46,22 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
 
         try {
             let finalUrl = formData.url;
+            let finalImageUrl = formData.image_url;
 
             // If a file is selected, upload it first
             if (file) {
                 finalUrl = await toolsService.uploadToolFile(file);
             }
 
+            // If a cover image is selected, upload it
+            if (coverImageFile) {
+                finalImageUrl = await toolsService.uploadToolFile(coverImageFile);
+            }
+
             const toolData = {
                 title: formData.title,
                 description: formData.description,
-                image_url: formData.image_url,
+                image_url: finalImageUrl,
                 url: finalUrl,
                 tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
             };
@@ -93,6 +105,50 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
         }
     };
 
+    // Cover Image Handlers
+    const handleCoverDragOver = (e) => {
+        e.preventDefault();
+        setIsCoverDragging(true);
+    };
+
+    const handleCoverDragLeave = (e) => {
+        e.preventDefault();
+        setIsCoverDragging(false);
+    };
+
+    const handleCoverDrop = (e) => {
+        e.preventDefault();
+        setIsCoverDragging(false);
+        const droppedFile = e.dataTransfer.files[0];
+        if (droppedFile && droppedFile.type.startsWith('image/')) {
+            setCoverImageFile(droppedFile);
+            setFormData({ ...formData, image_url: '' });
+        } else {
+            alert('Please upload an image file');
+        }
+    };
+
+    const handleCoverPaste = (e) => {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const blob = items[i].getAsFile();
+                setCoverImageFile(blob);
+                setFormData({ ...formData, image_url: '' });
+                e.preventDefault(); // Prevent pasting into other inputs if focused
+                return;
+            }
+        }
+    };
+
+    const handleCoverFileSelect = (e) => {
+        const selectedFile = e.target.files[0];
+        if (selectedFile) {
+            setCoverImageFile(selectedFile);
+            setFormData({ ...formData, image_url: '' });
+        }
+    };
+
     return (
         <div style={{
             position: 'fixed',
@@ -104,7 +160,6 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
             background: 'rgba(0, 0, 0, 0.5)',
             backdropFilter: 'blur(4px)'
         }}
-            onClick={onClose}
         >
             <div
                 className="glass-panel"
@@ -272,19 +327,131 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
                         />
                     </div>
 
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Image URL (Optional)</label>
-                        <input
-                            type="url"
-                            placeholder="https://..."
-                            value={formData.image_url}
-                            onChange={e => setFormData({ ...formData, image_url: e.target.value })}
+                    <div onPaste={handleCoverPaste}>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Cover Image (Optional)</label>
+
+                        {/* Cover Image Drag & Drop Zone */}
+                        <div
+                            onDragOver={handleCoverDragOver}
+                            onDragLeave={handleCoverDragLeave}
+                            onDrop={handleCoverDrop}
+                            onClick={() => document.getElementById('cover-upload').click()}
                             style={{
-                                width: '100%', padding: '0.75rem', borderRadius: '8px',
-                                background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)',
-                                color: 'white', fontSize: '1rem'
+                                border: `2px dashed ${isCoverDragging ? 'var(--accent-color)' : 'rgba(255,255,255,0.2)'}`,
+                                borderRadius: '12px',
+                                padding: coverImageFile || formData.image_url ? '1rem' : '2rem',
+                                textAlign: 'center',
+                                background: isCoverDragging ? 'rgba(79, 70, 229, 0.1)' : 'rgba(255,255,255,0.02)',
+                                transition: 'all 0.2s ease',
+                                cursor: 'pointer',
+                                position: 'relative',
+                                minHeight: '120px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center'
                             }}
-                        />
+                        >
+                            <input
+                                id="cover-upload"
+                                type="file"
+                                accept="image/*"
+                                onChange={handleCoverFileSelect}
+                                style={{ display: 'none' }}
+                            />
+
+                            {coverImageFile ? (
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                    <img
+                                        src={URL.createObjectURL(coverImageFile)}
+                                        alt="Preview"
+                                        style={{ maxHeight: '150px', maxWidth: '100%', borderRadius: '8px', objectFit: 'contain' }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setCoverImageFile(null);
+                                        }}
+                                        style={{
+                                            position: 'absolute', top: '-10px', right: '-10px',
+                                            background: '#ef4444', color: 'white',
+                                            border: 'none', borderRadius: '50%',
+                                            width: '24px', height: '24px',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                    <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                        {coverImageFile.name}
+                                    </div>
+                                </div>
+                            ) : formData.image_url ? (
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                    <img
+                                        src={formData.image_url}
+                                        alt="Preview"
+                                        style={{ maxHeight: '150px', maxWidth: '100%', borderRadius: '8px', objectFit: 'contain' }}
+                                        onError={(e) => e.target.style.display = 'none'}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setFormData({ ...formData, image_url: '' });
+                                        }}
+                                        style={{
+                                            position: 'absolute', top: '-10px', right: '-10px',
+                                            background: '#ef4444', color: 'white',
+                                            border: 'none', borderRadius: '50%',
+                                            width: '24px', height: '24px',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            ) : (
+                                <>
+                                    <div style={{
+                                        width: '40px', height: '40px', borderRadius: '50%',
+                                        background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        marginBottom: '0.75rem'
+                                    }}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '24px' }}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                                        </svg>
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                                        <span style={{ color: 'var(--accent-color)', fontWeight: 500 }}>Upload a file</span> or drag and drop
+                                    </p>
+                                    <p style={{ margin: '0.25rem 0', fontSize: '0.8rem', color: 'var(--text-secondary)', opacity: 0.7 }}>
+                                        PNG, JPG, GIF up to 5MB
+                                    </p>
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)', opacity: 0.5 }}>
+                                        Paste (Ctrl/Cmd+V) supported
+                                    </p>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Fallback URL Input - Optional if user prefers typing */}
+                        {!coverImageFile && (
+                            <input
+                                type="url"
+                                placeholder="Or enter image URL..."
+                                value={formData.image_url}
+                                onChange={e => setFormData({ ...formData, image_url: e.target.value })}
+                                style={{
+                                    width: '100%', padding: '0.75rem', borderRadius: '8px',
+                                    background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)',
+                                    color: 'white', fontSize: '0.9rem',
+                                    marginTop: '0.75rem'
+                                }}
+                            />
+                        )}
                     </div>
 
                     <div>
