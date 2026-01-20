@@ -63,10 +63,16 @@ export const toolsService = {
     // Upload a file to storage
     async uploadToolFile(file) {
         const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        // Force valid content type for HTML files
+        let contentType = file.type;
+        if (file.name.toLowerCase().endsWith('.html') || file.name.toLowerCase().endsWith('.htm')) {
+            contentType = 'text/html';
+        }
+
         const { data, error } = await supabase.storage
             .from('tool-files')
             .upload(fileName, file, {
-                contentType: file.type,
+                contentType: contentType,
                 upsert: false
             });
 
