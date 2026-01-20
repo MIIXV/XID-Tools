@@ -58,5 +58,24 @@ export const toolsService = {
             throw error;
         }
         return true;
+    },
+
+    // Upload a file to storage
+    async uploadToolFile(file) {
+        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        const { data, error } = await supabase.storage
+            .from('tool-files')
+            .upload(fileName, file);
+
+        if (error) {
+            console.error('Error uploading file:', error);
+            throw error;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+            .from('tool-files')
+            .getPublicUrl(fileName);
+
+        return publicUrl;
     }
 };
