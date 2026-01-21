@@ -20,7 +20,34 @@ const ToolCard = ({ tool, onOpen, onEdit, onDelete }) => {
                 e.currentTarget.style.boxShadow = 'var(--glass-shadow)';
                 e.currentTarget.querySelector('.tool-actions').style.opacity = '0';
             }}
-            onClick={() => onOpen(tool)}
+            onClick={async () => {
+                if (tool.url && (tool.url.toLowerCase().endsWith('.html') || tool.url.toLowerCase().endsWith('.htm'))) {
+                    // Open a new window immediately to avoid popup blockers
+                    const newWindow = window.open('', '_blank');
+                    if (newWindow) {
+                        newWindow.document.write('<style>body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #f8fafc; color: #64748b; }</style><div>Loading tool...</div>');
+
+                        try {
+                            const response = await fetch(tool.url);
+                            if (!response.ok) throw new Error('Failed to load tool');
+                            const htmlContent = await response.text();
+
+                            // Clear loading state and write content
+                            newWindow.document.open();
+                            newWindow.document.write(htmlContent);
+                            newWindow.document.close();
+                        } catch (error) {
+                            console.error('Error loading tool:', error);
+                            newWindow.document.body.innerHTML = `<div style="color: #ef4444; padding: 2rem; text-align: center;"><h3>Error loading tool</h3><p>${error.message}</p></div>`;
+                        }
+                    } else {
+                        // Fallback if popup blocked
+                        onOpen(tool);
+                    }
+                } else {
+                    onOpen(tool);
+                }
+            }}
         >
             {/* Image Section */}
             <div style={{
