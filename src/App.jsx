@@ -44,13 +44,20 @@ function App() {
   };
 
   const handleDeleteTool = async (tool) => {
-    if (confirm(`Delete ${tool.title}?`)) {
-      try {
-        await toolsService.deleteTool(tool);
-        setTools(tools.filter(t => t.id !== tool.id));
-      } catch (error) {
-        alert('Failed to delete tool');
-      }
+    const password = prompt(`To delete "${tool.title}", please enter the admin password:`);
+
+    if (password === null) return; // Users cancelled
+
+    if (password !== 'xiddeletecheck') {
+      alert('Incorrect password. Deletion cancelled.');
+      return;
+    }
+
+    try {
+      await toolsService.deleteTool(tool);
+      setTools(tools.filter(t => t.id !== tool.id));
+    } catch (error) {
+      alert('Failed to delete tool');
     }
   };
 
