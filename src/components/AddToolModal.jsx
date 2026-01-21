@@ -4,6 +4,7 @@ import { toolsService } from '../services/toolsService';
 const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
     const [formData, setFormData] = useState({
         title: '',
+        author: '',
         description: '',
         url: '',
         image_url: '',
@@ -21,6 +22,7 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
         if (initialData) {
             setFormData({
                 ...initialData,
+                author: initialData.author || '',
                 tags: initialData.tags ? initialData.tags.join(', ') : ''
             });
             setFile(null);
@@ -28,6 +30,7 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
         } else {
             setFormData({
                 title: '',
+                author: '',
                 description: '',
                 url: '',
                 image_url: '',
@@ -60,6 +63,7 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
 
             const toolData = {
                 title: formData.title,
+                author: formData.author,
                 description: formData.description,
                 image_url: finalImageUrl,
                 url: finalUrl,
@@ -440,6 +444,21 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
                                     type="text"
                                     value={formData.title}
                                     onChange={e => setFormData({ ...formData, title: e.target.value })}
+                                    style={{
+                                        width: '100%', padding: '0.75rem', borderRadius: '8px',
+                                        background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)',
+                                        color: 'white', fontSize: '1rem'
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Author</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Arno"
+                                    value={formData.author}
+                                    onChange={e => setFormData({ ...formData, author: e.target.value })}
                                     style={{
                                         width: '100%', padding: '0.75rem', borderRadius: '8px',
                                         background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)',

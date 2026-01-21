@@ -72,6 +72,26 @@ const ToolCard = ({ tool, onOpen, onEdit, onDelete }) => {
 
                 {/* Tags */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: 'auto' }}>
+                    {/* Author Tag */}
+                    {tool.author && (
+                        <span style={{
+                            fontSize: '0.75rem',
+                            padding: '0.25rem 0.75rem',
+                            borderRadius: '20px',
+                            background: 'rgba(249, 115, 22, 0.2)', // Orange tint
+                            border: '1px solid rgba(249, 115, 22, 0.4)',
+                            color: '#fb923c', // Orange text
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
+                        }}>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '12px', height: '12px' }}>
+                                <path d="M10 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3.465 14.493a1.23 1.23 0 0 0 .41 1.412A9.957 9.957 0 0 0 10 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 0 0-13.074.003Z" />
+                            </svg>
+                            {tool.author}
+                        </span>
+                    )}
+
                     {tool.tags && tool.tags.map((tag, i) => (
                         <span key={i} style={{
                             fontSize: '0.75rem',
