@@ -47,11 +47,58 @@ export const toolsService = {
     },
 
     // Delete a tool
-    async deleteTool(id) {
+    async deleteTool(tool) {
+        // 1. Try to delete associated files from storage first
+        const filesToDelete = [];
+
+        // Helper to extract path from full URL
+        const getPathFromUrl = (url) => {
+            if (!url) return null;
+            try {
+                // Assuming URL format: .../storage/v1/object/public/tool-files/filename
+                const urlObj = new URL(url);
+                const projectUrl = supabase.storageUrl || urlObj.origin; // fallback to origin if storageUrl not set in client
+
+                if (url.includes('/storage/v1/object/public/tool-files/')) {
+                    const parts = url.split('/tool-files/');
+                    if (parts.length === 2) {
+                        return decodeURIComponent(parts[1]);
+                    }
+                }
+                return null;
+            } catch (e) {
+                console.warn('Invalid URL for file deletion:', url);
+                return null;
+            }
+        };
+
+        if (tool.url) {
+            const path = getPathFromUrl(tool.url);
+            if (path) filesToDelete.push(path);
+        }
+
+        if (tool.image_url) {
+            const path = getPathFromUrl(tool.image_url);
+            if (path) filesToDelete.push(path);
+        }
+
+        if (filesToDelete.length > 0) {
+            const { error: storageError } = await supabase.storage
+                .from('tool-files')
+                .remove(filesToDelete);
+
+            if (storageError) {
+                console.error('Error deleting files from storage:', storageError);
+                // We continue to delete the DB record even if file deletion fails, 
+                // but log the error.
+            }
+        }
+
+        // 2. Delete database record
         const { error } = await supabase
             .from('tools')
             .delete()
-            .eq('id', id);
+            .eq('id', tool.id);
 
         if (error) {
             console.error('Error deleting tool:', error);
@@ -61,8 +108,16 @@ export const toolsService = {
     },
 
     // Upload a file to storage
-    async uploadToolFile(file) {
-        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    async uploadToolFile(file, title) {
+        // Sanitize title for filename: remove slashes, keep Chinese/English/Numbers/Dashes
+        const sanitizedTitle = (title || 'untitled').replace(/[\/\\]/g, '_').trim();
+        // Use timestamp to ensure uniqueness
+        const timestamp = Date.now();
+        // Get extension
+        const ext = file.name.split('.').pop();
+
+        const fileName = `${sanitizedTitle}_${timestamp}.${ext}`;
+
         // Force valid content type for HTML files
         let contentType = file.type;
         if (file.name.toLowerCase().endsWith('.html') || file.name.toLowerCase().endsWith('.htm')) {

@@ -50,12 +50,12 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
 
             // If a file is selected, upload it first
             if (file) {
-                finalUrl = await toolsService.uploadToolFile(file);
+                finalUrl = await toolsService.uploadToolFile(file, formData.title);
             }
 
             // If a cover image is selected, upload it
             if (coverImageFile) {
-                finalImageUrl = await toolsService.uploadToolFile(coverImageFile);
+                finalImageUrl = await toolsService.uploadToolFile(coverImageFile, formData.title + '_cover');
             }
 
             const toolData = {

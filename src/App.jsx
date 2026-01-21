@@ -46,7 +46,7 @@ function App() {
   const handleDeleteTool = async (tool) => {
     if (confirm(`Delete ${tool.title}?`)) {
       try {
-        await toolsService.deleteTool(tool.id);
+        await toolsService.deleteTool(tool);
         setTools(tools.filter(t => t.id !== tool.id));
       } catch (error) {
         alert('Failed to delete tool');
