@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import Pinyin from 'tiny-pinyin';
 
 export const toolsService = {
     // Fetch all tools, ordered by creation date (newest first)
@@ -109,8 +110,25 @@ export const toolsService = {
 
     // Upload a file to storage
     async uploadToolFile(file, title) {
-        // Sanitize title for filename: remove slashes, keep Chinese/English/Numbers/Dashes
-        const sanitizedTitle = (title || 'untitled').replace(/[\/\\]/g, '_').trim();
+        // Convert to Pinyin first (handles Chinese characters)
+        // Check if Pinyin is available (in case import failed or not installed yet)
+        let pinyinTitle = title || 'untitled';
+        try {
+            if (Pinyin && Pinyin.convertToPinyin) {
+                pinyinTitle = Pinyin.convertToPinyin(title || 'untitled', '', true); // true for no tone
+            }
+        } catch (e) {
+            console.warn('Pinyin conversion failed, using original title:', e);
+        }
+
+        // Sanitize title for filename: allow only alphanumeric, dashes, and underscores
+        let sanitizedTitle = pinyinTitle.replace(/[^a-zA-Z0-9\-_]/g, '').trim();
+
+        // Fallback if sanitization leaves nothing (e.g. only special chars were used)
+        if (!sanitizedTitle) {
+            sanitizedTitle = 'tool_file';
+        }
+
         // Use timestamp to ensure uniqueness
         const timestamp = Date.now();
         // Get extension
