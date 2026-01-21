@@ -456,7 +456,6 @@ const AddToolModal = ({ isOpen, onClose, onSave, initialData }) => {
                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Author</label>
                                 <input
                                     type="text"
-                                    placeholder="e.g. Arno"
                                     value={formData.author}
                                     onChange={e => setFormData({ ...formData, author: e.target.value })}
                                     style={{
